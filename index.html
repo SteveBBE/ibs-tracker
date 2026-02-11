@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IBS Tracker</title>
+  <meta name="theme-color" content="#121212">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>IBS Tracker</h1>
+    <nav>
+      <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+      <button class="nav-btn" data-view="log-meal">Log Meal</button>
+      <button class="nav-btn" data-view="log-symptom">Log Symptom</button>
+      <button class="nav-btn" data-view="log-bm">Log BM</button>
+      <button class="nav-btn" data-view="patterns">Patterns</button>
+      <button class="nav-btn" data-view="export">Export</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Dashboard View -->
+    <section id="dashboard" class="view active">
+      <div class="calendar-section">
+        <div class="calendar-header">
+          <button id="prev-month">&larr;</button>
+          <h2 id="calendar-month-year"></h2>
+          <button id="next-month">&rarr;</button>
+        </div>
+        <div class="calendar-grid">
+          <div class="calendar-day-label">Sun</div>
+          <div class="calendar-day-label">Mon</div>
+          <div class="calendar-day-label">Tue</div>
+          <div class="calendar-day-label">Wed</div>
+          <div class="calendar-day-label">Thu</div>
+          <div class="calendar-day-label">Fri</div>
+          <div class="calendar-day-label">Sat</div>
+        </div>
+        <div id="calendar-days" class="calendar-grid"></div>
+      </div>
+
+      <div id="day-detail" class="day-detail hidden">
+        <h3 id="day-detail-title"></h3>
+        <div id="day-detail-entries"></div>
+        <button id="close-day-detail" class="btn-secondary">Close</button>
+      </div>
+
+      <div class="recent-section">
+        <h2>Recent Entries</h2>
+        <div class="filter-bar">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="meal">Meals</button>
+          <button class="filter-btn" data-filter="symptom">Symptoms</button>
+          <button class="filter-btn" data-filter="bm">Bowel Movements</button>
+        </div>
+        <div id="recent-entries"></div>
+      </div>
+    </section>
+
+    <!-- Log Meal View -->
+    <section id="log-meal" class="view">
+      <h2>Log a Meal</h2>
+      <form id="meal-form">
+        <div class="form-group">
+          <label for="meal-name">Food / Meal</label>
+          <input type="text" id="meal-name" required placeholder="e.g. Grilled chicken with rice">
+        </div>
+        <div class="form-group">
+          <label for="meal-time">Time Eaten</label>
+          <input type="datetime-local" id="meal-time" required>
+        </div>
+        <div class="form-group">
+          <label for="meal-tags">Food Tags <span class="hint">(comma-separated, helps with pattern tracking)</span></label>
+          <input type="text" id="meal-tags" placeholder="e.g. dairy, gluten, spicy">
+        </div>
+        <div class="form-group">
+          <label for="meal-notes">Notes</label>
+          <textarea id="meal-notes" rows="3" placeholder="Any extra details..."></textarea>
+        </div>
+        <button type="submit" class="btn-primary">Save Meal</button>
+      </form>
+    </section>
+
+    <!-- Log Symptom View -->
+    <section id="log-symptom" class="view">
+      <h2>Log a Symptom</h2>
+      <form id="symptom-form">
+        <div class="form-group">
+          <label for="symptom-type">Symptom Type</label>
+          <select id="symptom-type" required>
+            <option value="">Select a symptom...</option>
+            <option value="pain">Abdominal Pain</option>
+            <option value="bloating">Bloating</option>
+            <option value="gas">Gas</option>
+            <option value="diarrhea">Diarrhea</option>
+            <option value="constipation">Constipation</option>
+            <option value="nausea">Nausea</option>
+            <option value="cramping">Cramping</option>
+            <option value="urgency">Urgency</option>
+            <option value="fatigue">Fatigue</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="symptom-severity">Severity: <span id="severity-value">5</span>/10</label>
+          <input type="range" id="symptom-severity" min="1" max="10" value="5">
+          <div class="severity-labels">
+            <span>Mild</span>
+            <span>Moderate</span>
+            <span>Severe</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="symptom-time">Time of Symptom</label>
+          <input type="datetime-local" id="symptom-time" required>
+        </div>
+        <div class="form-group">
+          <label for="symptom-notes">Notes</label>
+          <textarea id="symptom-notes" rows="3" placeholder="Any extra details..."></textarea>
+        </div>
+        <button type="submit" class="btn-primary">Save Symptom</button>
+      </form>
+    </section>
+
+    <!-- Log Bowel Movement View -->
+    <section id="log-bm" class="view">
+      <h2>Log Bowel Movement</h2>
+      <form id="bm-form">
+        <div class="form-group">
+          <label for="bm-type">Bristol Stool Type</label>
+          <div class="bristol-scale">
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="1" required>
+              <div class="bristol-card">
+                <strong>Type 1</strong>
+                <span>Separate hard lumps</span>
+              </div>
+            </label>
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="2">
+              <div class="bristol-card">
+                <strong>Type 2</strong>
+                <span>Lumpy, sausage-shaped</span>
+              </div>
+            </label>
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="3">
+              <div class="bristol-card">
+                <strong>Type 3</strong>
+                <span>Sausage with cracks</span>
+              </div>
+            </label>
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="4">
+              <div class="bristol-card">
+                <strong>Type 4</strong>
+                <span>Smooth, soft sausage</span>
+              </div>
+            </label>
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="5">
+              <div class="bristol-card">
+                <strong>Type 5</strong>
+                <span>Soft blobs with clear edges</span>
+              </div>
+            </label>
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="6">
+              <div class="bristol-card">
+                <strong>Type 6</strong>
+                <span>Mushy, fluffy pieces</span>
+              </div>
+            </label>
+            <label class="bristol-option">
+              <input type="radio" name="bm-type" value="7">
+              <div class="bristol-card">
+                <strong>Type 7</strong>
+                <span>Entirely liquid</span>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="bm-urgency">Urgency</label>
+          <select id="bm-urgency">
+            <option value="none">None</option>
+            <option value="mild">Mild</option>
+            <option value="moderate">Moderate</option>
+            <option value="severe">Severe / Couldn't wait</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="bm-time">Time</label>
+          <input type="datetime-local" id="bm-time" required>
+        </div>
+        <div class="form-group">
+          <label for="bm-notes">Notes</label>
+          <textarea id="bm-notes" rows="3" placeholder="Any extra details..."></textarea>
+        </div>
+        <button type="submit" class="btn-primary">Save Bowel Movement</button>
+      </form>
+    </section>
+
+    <!-- Patterns View -->
+    <section id="patterns" class="view">
+      <h2>Food &amp; Symptom Patterns</h2>
+      <p class="patterns-intro">This view analyzes which foods you ate in the <strong>24 hours before</strong> each symptom to help identify triggers. The more data you log, the more accurate the patterns become.</p>
+
+      <div class="patterns-controls">
+        <div class="form-group">
+          <label for="pattern-range">Time Range</label>
+          <select id="pattern-range">
+            <option value="7">Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="patterns-summary" class="patterns-summary"></div>
+      <div id="patterns-detail"></div>
+    </section>
+    <!-- Export View -->
+    <section id="export" class="view">
+      <h2>Export Data</h2>
+
+      <div class="export-card">
+        <h3>Download CSV</h3>
+        <p>All meals, symptoms, and bowel movements as a CSV file. Good for spreadsheets or archiving.</p>
+        <button id="export-csv" class="btn-primary">Download CSV</button>
+      </div>
+
+      <div class="export-card">
+        <h3>Copy as Markdown</h3>
+        <p>Formatted text summary ready to paste into Claude, ChatGPT, or any LLM for analysis.</p>
+        <button id="export-md" class="btn-primary">Copy to Clipboard</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
