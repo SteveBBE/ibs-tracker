@@ -10,10 +10,38 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+  <!-- Auth Screen -->
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-box">
+      <h1>IBS Tracker</h1>
+      <p class="auth-subtitle">Sign in to sync data across devices</p>
+      <form id="auth-form">
+        <div class="form-group">
+          <input type="email" id="auth-email" placeholder="Email" required>
+        </div>
+        <div class="form-group">
+          <input type="password" id="auth-password" placeholder="Password" required>
+        </div>
+        <p id="auth-error" class="auth-error"></p>
+        <button type="submit" id="auth-submit" class="btn-primary">Sign In</button>
+      </form>
+      <button id="auth-toggle" class="link-btn">Don't have an account? Sign up</button>
+      <div class="auth-divider"><span>or</span></div>
+      <button id="auth-skip" class="btn-secondary" style="width:100%">Continue without account</button>
+    </div>
+  </div>
+
   <header>
-    <h1>IBS Tracker</h1>
+    <div class="header-row">
+      <h1>IBS Tracker</h1>
+      <div id="user-info" class="user-info hidden">
+        <span id="user-email"></span>
+        <button id="logout-btn" class="btn-secondary btn-sm">Log out</button>
+      </div>
+    </div>
     <nav>
       <button class="nav-btn active" data-view="dashboard">Dashboard</button>
       <button class="nav-btn" data-view="log-meal">Log Meal</button>

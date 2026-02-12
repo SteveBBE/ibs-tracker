@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ibs-tracker-v1';
+const CACHE_NAME = 'ibs-tracker-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -25,9 +25,15 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+
+  // Don't cache Supabase API calls or CDN scripts
+  if (url.hostname.includes('supabase') || url.hostname.includes('jsdelivr')) {
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then(cached => {
-      // Serve from cache, then update in background
       const fetchPromise = fetch(e.request).then(response => {
         if (response.ok) {
           const clone = response.clone();

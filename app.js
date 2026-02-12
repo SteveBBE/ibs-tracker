@@ -1,4 +1,12 @@
-// ── Data Layer ──────────────────────────────────────────────
+// ── Supabase ────────────────────────────────────────────────
+
+const SUPABASE_URL = 'https://dcmlotdttxrkohehaiux.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjbWxvdGR0dHhya29oZWhhaXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4ODk0MzQsImV4cCI6MjA4NjQ2NTQzNH0.o32Oo2AZ1M3n2xBNkHmQfIZxeRpgENTOIXZrQOhmfYI';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+
+// ── Data Layer (localStorage) ───────────────────────────────
 
 const MEALS_KEY = 'ibs_meals';
 const SYMPTOMS_KEY = 'ibs_symptoms';
@@ -20,15 +28,6 @@ function saveSymptoms(symptoms) {
   localStorage.setItem(SYMPTOMS_KEY, JSON.stringify(symptoms));
 }
 
-function addMeal(meal) {
-  const meals = getMeals();
-  meal.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  meal.type = 'meal';
-  meals.push(meal);
-  saveMeals(meals);
-  return meal;
-}
-
 function getBMs() {
   return JSON.parse(localStorage.getItem(BM_KEY) || '[]');
 }
@@ -37,31 +36,71 @@ function saveBMs(bms) {
   localStorage.setItem(BM_KEY, JSON.stringify(bms));
 }
 
-function addBM(bm) {
-  const bms = getBMs();
-  bm.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  bm.type = 'bm';
-  bms.push(bm);
-  saveBMs(bms);
-  return bm;
+function generateId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function addMeal(meal) {
+  meal.id = generateId();
+  meal.type = 'meal';
+  const meals = getMeals();
+  meals.push(meal);
+  saveMeals(meals);
+
+  if (currentUser) {
+    sb.from('meals').insert({
+      id: meal.id, name: meal.name, tags: meal.tags, time: meal.time, notes: meal.notes || '',
+    });
+  }
+  return meal;
 }
 
 function addSymptom(symptom) {
-  const symptoms = getSymptoms();
-  symptom.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  symptom.id = generateId();
   symptom.type = 'symptom';
+  const symptoms = getSymptoms();
   symptoms.push(symptom);
   saveSymptoms(symptoms);
+
+  if (currentUser) {
+    sb.from('symptoms').insert({
+      id: symptom.id, symptom_type: symptom.symptomType, severity: symptom.severity,
+      time: symptom.time, notes: symptom.notes || '',
+    });
+  }
   return symptom;
+}
+
+function addBM(bm) {
+  bm.id = generateId();
+  bm.type = 'bm';
+  const bms = getBMs();
+  bms.push(bm);
+  saveBMs(bms);
+
+  if (currentUser) {
+    sb.from('bowel_movements').insert({
+      id: bm.id, bristol_type: bm.bristolType, urgency: bm.urgency || 'none',
+      time: bm.time, notes: bm.notes || '',
+    });
+  }
+  return bm;
 }
 
 function deleteEntry(id, type) {
   if (type === 'meal') {
     saveMeals(getMeals().filter(m => m.id !== id));
+    if (currentUser) sb.from('meals').delete().eq('id', id);
   } else if (type === 'bm') {
     saveBMs(getBMs().filter(b => b.id !== id));
+    if (currentUser) sb.from('bowel_movements').delete().eq('id', id);
   } else {
     saveSymptoms(getSymptoms().filter(s => s.id !== id));
+    if (currentUser) sb.from('symptoms').delete().eq('id', id);
   }
 }
 
@@ -71,6 +110,175 @@ function getAllEntries() {
   const bms = getBMs().map(b => ({ ...b, type: 'bm' }));
   return [...meals, ...symptoms, ...bms].sort((a, b) => new Date(b.time) - new Date(a.time));
 }
+
+// ── Supabase Sync ───────────────────────────────────────────
+
+async function syncFromSupabase() {
+  if (!currentUser) return;
+  try {
+    const [mealsRes, symptomsRes, bmsRes] = await Promise.all([
+      sb.from('meals').select('*').order('time', { ascending: false }),
+      sb.from('symptoms').select('*').order('time', { ascending: false }),
+      sb.from('bowel_movements').select('*').order('time', { ascending: false }),
+    ]);
+
+    if (mealsRes.data) {
+      saveMeals(mealsRes.data.map(m => ({
+        id: m.id, type: 'meal', name: m.name, tags: m.tags || [],
+        time: m.time, notes: m.notes || '',
+      })));
+    }
+    if (symptomsRes.data) {
+      saveSymptoms(symptomsRes.data.map(s => ({
+        id: s.id, type: 'symptom', symptomType: s.symptom_type, severity: s.severity,
+        time: s.time, notes: s.notes || '',
+      })));
+    }
+    if (bmsRes.data) {
+      saveBMs(bmsRes.data.map(b => ({
+        id: b.id, type: 'bm', bristolType: b.bristol_type, urgency: b.urgency || 'none',
+        time: b.time, notes: b.notes || '',
+      })));
+    }
+
+    refreshDashboard();
+  } catch (e) {
+    console.error('Sync from Supabase failed:', e);
+  }
+}
+
+async function migrateLocalToSupabase() {
+  if (!currentUser) return;
+
+  const meals = getMeals();
+  const symptoms = getSymptoms();
+  const bms = getBMs();
+
+  const total = meals.length + symptoms.length + bms.length;
+  if (total === 0) return;
+
+  showToast('Migrating local data...');
+
+  try {
+    if (meals.length) {
+      await sb.from('meals').insert(meals.map(m => ({
+        name: m.name, tags: m.tags || [], time: m.time, notes: m.notes || '',
+      })));
+    }
+    if (symptoms.length) {
+      await sb.from('symptoms').insert(symptoms.map(s => ({
+        symptom_type: s.symptomType, severity: s.severity, time: s.time, notes: s.notes || '',
+      })));
+    }
+    if (bms.length) {
+      await sb.from('bowel_movements').insert(bms.map(b => ({
+        bristol_type: b.bristolType, urgency: b.urgency || 'none', time: b.time, notes: b.notes || '',
+      })));
+    }
+
+    // Re-sync to get Supabase-generated IDs
+    await syncFromSupabase();
+    showToast(`Migrated ${total} entries`);
+  } catch (e) {
+    console.error('Migration failed:', e);
+    showToast('Migration failed - data kept locally');
+  }
+}
+
+// ── Auth ────────────────────────────────────────────────────
+
+const authScreen = document.getElementById('auth-screen');
+const authForm = document.getElementById('auth-form');
+const authEmail = document.getElementById('auth-email');
+const authPassword = document.getElementById('auth-password');
+const authSubmit = document.getElementById('auth-submit');
+const authToggle = document.getElementById('auth-toggle');
+const authError = document.getElementById('auth-error');
+const authSkip = document.getElementById('auth-skip');
+const userInfo = document.getElementById('user-info');
+const userEmail = document.getElementById('user-email');
+const logoutBtn = document.getElementById('logout-btn');
+
+let isSignUp = false;
+
+authToggle.addEventListener('click', () => {
+  isSignUp = !isSignUp;
+  authSubmit.textContent = isSignUp ? 'Sign Up' : 'Sign In';
+  authToggle.textContent = isSignUp
+    ? 'Already have an account? Sign in'
+    : "Don't have an account? Sign up";
+  authError.textContent = '';
+});
+
+authForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  authError.textContent = '';
+  authSubmit.disabled = true;
+  authSubmit.textContent = isSignUp ? 'Signing up...' : 'Signing in...';
+
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+
+  let result;
+  if (isSignUp) {
+    result = await sb.auth.signUp({ email, password });
+  } else {
+    result = await sb.auth.signInWithPassword({ email, password });
+  }
+
+  if (result.error) {
+    authError.textContent = result.error.message;
+    authSubmit.disabled = false;
+    authSubmit.textContent = isSignUp ? 'Sign Up' : 'Sign In';
+  }
+  // Success is handled by onAuthStateChange
+});
+
+authSkip.addEventListener('click', () => {
+  authScreen.classList.add('hidden');
+});
+
+logoutBtn.addEventListener('click', async () => {
+  await sb.auth.signOut();
+  currentUser = null;
+  updateAuthUI();
+  showToast('Logged out');
+});
+
+function updateAuthUI() {
+  if (currentUser) {
+    authScreen.classList.add('hidden');
+    userInfo.classList.remove('hidden');
+    userEmail.textContent = currentUser.email;
+  } else {
+    userInfo.classList.add('hidden');
+  }
+}
+
+// Listen for auth changes
+sb.auth.onAuthStateChange(async (event, session) => {
+  const wasLoggedOut = !currentUser;
+  currentUser = session?.user || null;
+  updateAuthUI();
+
+  if (currentUser) {
+    if (wasLoggedOut) {
+      // Check if there's local data to migrate
+      const localCount = getMeals().length + getSymptoms().length + getBMs().length;
+
+      // Check if Supabase already has data
+      const { count } = await sb.from('meals').select('*', { count: 'exact', head: true });
+
+      if (localCount > 0 && (count === 0 || count === null)) {
+        // Local data exists but Supabase is empty - migrate
+        await migrateLocalToSupabase();
+      } else {
+        // Supabase has data - sync it down
+        await syncFromSupabase();
+      }
+    }
+  }
+});
 
 // ── Navigation ──────────────────────────────────────────────
 
@@ -104,7 +312,6 @@ function showToast(msg) {
 const mealForm = document.getElementById('meal-form');
 const mealTimeInput = document.getElementById('meal-time');
 
-// Default time to now
 function setDefaultTime(input) {
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -405,7 +612,6 @@ function renderCalendar() {
   const container = document.getElementById('calendar-days');
   container.innerHTML = '';
 
-  // Build a map of date -> entries
   const entries = getAllEntries();
   const dateMap = {};
   entries.forEach(e => {
@@ -423,7 +629,6 @@ function renderCalendar() {
   const today = new Date();
   const todayKey = dateKey(today);
 
-  // Previous month padding
   for (let i = firstDay - 1; i >= 0; i--) {
     const day = prevMonthDays - i;
     const cell = document.createElement('div');
@@ -432,7 +637,6 @@ function renderCalendar() {
     container.appendChild(cell);
   }
 
-  // Current month
   for (let d = 1; d <= daysInMonth; d++) {
     const cell = document.createElement('div');
     cell.className = 'calendar-day';
@@ -468,7 +672,6 @@ function renderCalendar() {
     container.appendChild(cell);
   }
 
-  // Next month padding
   const totalCells = firstDay + daysInMonth;
   const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
   for (let i = 1; i <= remaining; i++) {
@@ -532,7 +735,6 @@ function renderPatternsSummary(meals, symptoms) {
     ? (symptoms.reduce((sum, s) => sum + s.severity, 0) / symptoms.length).toFixed(1)
     : '---';
 
-  // Count symptom-free days in range
   const symptomDays = new Set(symptoms.map(s => dateKey(new Date(s.time))));
   const mealDays = new Set(meals.map(m => dateKey(new Date(m.time))));
   const allDays = new Set([...symptomDays, ...mealDays]);
@@ -571,10 +773,9 @@ function renderPatternsDetail(meals, symptoms) {
     return;
   }
 
-  // For each symptom, find meals eaten in the 24h before it
   const WINDOW_MS = 24 * 60 * 60 * 1000;
-  const tagSymptomMap = {}; // tag -> { total: count, byType: { symptomType: count } }
-  const foodSymptomMap = {}; // food name -> same structure
+  const tagSymptomMap = {};
+  const foodSymptomMap = {};
 
   symptoms.forEach(symptom => {
     const symptomTime = new Date(symptom.time).getTime();
@@ -586,14 +787,12 @@ function renderPatternsDetail(meals, symptoms) {
     });
 
     precedingMeals.forEach(meal => {
-      // Track by food name
       const foodKey = meal.name.toLowerCase().trim();
       if (!foodSymptomMap[foodKey]) foodSymptomMap[foodKey] = { total: 0, byType: {}, avgSeverity: 0, severitySum: 0 };
       foodSymptomMap[foodKey].total++;
       foodSymptomMap[foodKey].byType[symptom.symptomType] = (foodSymptomMap[foodKey].byType[symptom.symptomType] || 0) + 1;
       foodSymptomMap[foodKey].severitySum += symptom.severity;
 
-      // Track by tags
       if (meal.tags) {
         meal.tags.forEach(tag => {
           if (!tagSymptomMap[tag]) tagSymptomMap[tag] = { total: 0, byType: {}, avgSeverity: 0, severitySum: 0 };
@@ -605,7 +804,6 @@ function renderPatternsDetail(meals, symptoms) {
     });
   });
 
-  // Compute averages
   for (const key in foodSymptomMap) {
     foodSymptomMap[key].avgSeverity = (foodSymptomMap[key].severitySum / foodSymptomMap[key].total).toFixed(1);
   }
@@ -613,13 +811,11 @@ function renderPatternsDetail(meals, symptoms) {
     tagSymptomMap[key].avgSeverity = (tagSymptomMap[key].severitySum / tagSymptomMap[key].total).toFixed(1);
   }
 
-  // Symptom frequency
   const symptomCounts = {};
   symptoms.forEach(s => {
     symptomCounts[s.symptomType] = (symptomCounts[s.symptomType] || 0) + 1;
   });
 
-  // Render symptom frequency
   const maxSymptomCount = Math.max(...Object.values(symptomCounts));
   const symptomGroup = document.createElement('div');
   symptomGroup.className = 'pattern-group';
@@ -633,7 +829,6 @@ function renderPatternsDetail(meals, symptoms) {
 
   container.appendChild(symptomGroup);
 
-  // Render tag-based triggers
   const tagEntries = Object.entries(tagSymptomMap).sort((a, b) => b[1].total - a[1].total);
   if (tagEntries.length) {
     const maxTag = Math.max(...tagEntries.map(e => e[1].total));
@@ -649,7 +844,6 @@ function renderPatternsDetail(meals, symptoms) {
     container.appendChild(tagGroup);
   }
 
-  // Render food-based triggers
   const foodEntries = Object.entries(foodSymptomMap).sort((a, b) => b[1].total - a[1].total);
   if (foodEntries.length) {
     const maxFood = Math.max(...foodEntries.map(e => e[1].total));
@@ -686,14 +880,6 @@ function renderBar(label, value, max, colorClass, detail) {
 }
 
 // ── Export ──────────────────────────────────────────────────
-
-function formatDateTime(iso) {
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  });
-}
 
 function escapeCsv(val) {
   const s = String(val ?? '');
@@ -739,7 +925,6 @@ document.getElementById('export-md').addEventListener('click', () => {
   const entries = getAllEntries();
   if (!entries.length) { showToast('No data to export'); return; }
 
-  // Group by date
   const byDate = {};
   entries.forEach(e => {
     const d = new Date(e.time);
@@ -782,7 +967,6 @@ document.getElementById('export-md').addEventListener('click', () => {
   navigator.clipboard.writeText(md).then(() => {
     showToast('Copied to clipboard');
   }).catch(() => {
-    // Fallback: open in a new window
     const w = window.open('', '_blank');
     w.document.write('<pre>' + md.replace(/</g, '&lt;') + '</pre>');
     showToast('Opened in new tab (clipboard blocked)');
