@@ -158,27 +158,37 @@ async function migrateLocalToSupabase() {
   if (total === 0) return;
 
   showToast('Migrating local data...');
+  let migrated = 0;
 
   try {
     if (meals.length) {
-      await sb.from('meals').insert(meals.map(m => ({
+      const { error } = await sb.from('meals').insert(meals.map(m => ({
         name: m.name, tags: m.tags || [], time: m.time, notes: m.notes || '',
       })));
+      if (error) console.error('Meals migration error:', error);
+      else migrated += meals.length;
     }
     if (symptoms.length) {
-      await sb.from('symptoms').insert(symptoms.map(s => ({
+      const { error } = await sb.from('symptoms').insert(symptoms.map(s => ({
         symptom_type: s.symptomType, severity: s.severity, time: s.time, notes: s.notes || '',
       })));
+      if (error) console.error('Symptoms migration error:', error);
+      else migrated += symptoms.length;
     }
     if (bms.length) {
-      await sb.from('bowel_movements').insert(bms.map(b => ({
+      const { error } = await sb.from('bowel_movements').insert(bms.map(b => ({
         bristol_type: b.bristolType, urgency: b.urgency || 'none', time: b.time, notes: b.notes || '',
       })));
+      if (error) console.error('BM migration error:', error);
+      else migrated += bms.length;
     }
 
-    // Re-sync to get Supabase-generated IDs
-    await syncFromSupabase();
-    showToast(`Migrated ${total} entries`);
+    if (migrated > 0) {
+      await syncFromSupabase();
+      showToast(`Migrated ${migrated} entries`);
+    } else {
+      showToast('Migration failed - data kept locally');
+    }
   } catch (e) {
     console.error('Migration failed:', e);
     showToast('Migration failed - data kept locally');
@@ -261,20 +271,31 @@ sb.auth.onAuthStateChange(async (event, session) => {
   currentUser = session?.user || null;
   updateAuthUI();
 
-  if (currentUser) {
-    if (wasLoggedOut) {
-      // Check if there's local data to migrate
-      const localCount = getMeals().length + getSymptoms().length + getBMs().length;
+  if (currentUser && wasLoggedOut) {
+    // Small delay to ensure auth token is fully propagated
+    await new Promise(r => setTimeout(r, 500));
 
-      // Check if Supabase already has data
-      const { count } = await sb.from('meals').select('*', { count: 'exact', head: true });
+    // Save local data before any sync (so we don't lose it)
+    const localMeals = getMeals();
+    const localSymptoms = getSymptoms();
+    const localBMs = getBMs();
+    const localCount = localMeals.length + localSymptoms.length + localBMs.length;
 
-      if (localCount > 0 && (count === 0 || count === null)) {
-        // Local data exists but Supabase is empty - migrate
+    // Check if Supabase already has data
+    const { count, error } = await sb.from('meals').select('*', { count: 'exact', head: true });
+
+    if (localCount > 0 && !error && (count === 0 || count === null)) {
+      await migrateLocalToSupabase();
+    } else {
+      await syncFromSupabase();
+
+      // If sync returned nothing but we had local data, restore it
+      const afterSync = getMeals().length + getSymptoms().length + getBMs().length;
+      if (afterSync === 0 && localCount > 0) {
+        saveMeals(localMeals);
+        saveSymptoms(localSymptoms);
+        saveBMs(localBMs);
         await migrateLocalToSupabase();
-      } else {
-        // Supabase has data - sync it down
-        await syncFromSupabase();
       }
     }
   }
